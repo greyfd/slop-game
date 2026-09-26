@@ -1,154 +1,143 @@
-// UI/Input setup and Worker initialization\n// src/main.ts
+/**
+ * Main entry point.
+ *
+ * Single-threaded game loop:
+ *   1. Process input
+ *   2. Update player physics (gravity, collision, movement)
+ *   3. Update camera matrices
+ *   4. Render terrain via WebGPU
+ */
 
-const wgslShader = `
-struct Uniforms {
-  matrix: mat4x4<f32>,
-};
+import { Input } from './input';
+import { Player } from './player';
+import { Heightmap } from './terrain/heightmap';
+import { generateTerrainMesh } from './terrain/mesh';
+import { initGPU, recreateDepthTexture } from './render/gpu';
+import { TerrainPipeline } from './render/terrain-pipeline';
 
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+// --- Configuration ---
+const TERRAIN_GRID_SIZE = 128;   // vertices per axis
+const TERRAIN_CELL_SIZE = 2.0;   // world units between vertices
+const TERRAIN_AMPLITUDE = 8.0;   // max height of hills
+const FOV = Math.PI / 3;         // 60 degrees
+const NEAR_PLANE = 0.1;
+const FAR_PLANE = 500.0;
+const MAX_DT = 1 / 30;           // cap delta time to prevent tunneling
 
-@vertex
-fn vs_main(@builtin(vertex_index) VertexIndex : u32) -> @builtin(position) vec4<f32> {
-    // A simple colored triangle
-    var pos = array<vec2<f32>, 3>(
-        vec2<f32>( 0.0,  0.2),
-        vec2<f32>(-0.2, -0.2),
-        vec2<f32>( 0.2, -0.2)
+async function init(): Promise<void> {
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) {
+        throw new Error('Canvas element not found.');
+    }
+
+    const overlay = document.getElementById('overlay') as HTMLDivElement | null;
+
+    // Resize canvas to fill viewport
+    function resizeCanvas(): void {
+        if (!canvas) return;
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    resizeCanvas();
+
+    // --- Initialize WebGPU ---
+    let gpu = await initGPU(canvas);
+
+    // --- Generate terrain ---
+    const heightmap = new Heightmap(
+        TERRAIN_GRID_SIZE,
+        TERRAIN_GRID_SIZE,
+        TERRAIN_CELL_SIZE,
+        TERRAIN_AMPLITUDE
+    );
+    const terrainMesh = generateTerrainMesh(heightmap);
+    const terrainPipeline = new TerrainPipeline(gpu, terrainMesh);
+
+    // --- Initialize input and player ---
+    const input = new Input(canvas);
+    const player = new Player();
+
+    // Place player at center of terrain, on the ground
+    const startHeight = heightmap.getHeight(0, 0);
+    player.camera.position[0] = 0;
+    player.camera.position[1] = startHeight + 1.7; // PLAYER_HEIGHT
+    player.camera.position[2] = 0;
+
+    // Initial projection
+    player.camera.updateProjection(
+        FOV,
+        canvas.width / canvas.height,
+        NEAR_PLANE,
+        FAR_PLANE
     );
 
-    let position = vec4<f32>(pos[VertexIndex], 0.0, 1.0);
-    return uniforms.matrix * position;
-}
-
-@fragment
-fn fs_main() -> @location(0) vec4<f32> {
-    return vec4<f32>(1.0, 0.4, 0.0, 1.0); // Orange triangle
-}
-`;
-
-async function init() {
-    const errorEl = document.getElementById('error') as HTMLDivElement;
-    const canvas = document.getElementById('canvas') as HTMLCanvasElement;
-
-    // Handle no-WebGPU case explicitly
-    if (!navigator.gpu) {
-        errorEl.style.display = 'block';
-        canvas.style.display = 'none';
-        console.error("WebGPU not supported on this browser.");
-        return;
-    }
-
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) {
-        errorEl.style.display = 'block';
-        canvas.style.display = 'none';
-        console.error("No appropriate GPU adapter found.");
-        return;
-    }
-
-    const device = await adapter.requestDevice();
-
-    const context = canvas.getContext('webgpu') as GPUCanvasContext;
-    const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
-    
-    context.configure({
-        device,
-        format: presentationFormat,
-        alphaMode: 'premultiplied',
+    // --- Handle resize ---
+    window.addEventListener('resize', () => {
+        resizeCanvas();
+        gpu = recreateDepthTexture(gpu);
+        player.camera.updateProjection(
+            FOV,
+            canvas.width / canvas.height,
+            NEAR_PLANE,
+            FAR_PLANE
+        );
     });
 
-    // Allocate SharedArrayBuffer for a single 4x4 Float32 matrix (16 floats * 4 bytes = 64 bytes)
-    // COOP and COEP headers must be set in vite.config.ts for this to not throw.
-    const sab = new SharedArrayBuffer(64);
-
-    // Initialize Web Worker
-    const worker = new Worker(new URL('./physics.worker.ts', import.meta.url), { type: 'module' });
-    worker.postMessage({ type: 'INIT', buffer: sab });
-
-    // WebGPU Shader Module
-    const shaderModule = device.createShaderModule({
-        label: 'Triangle Shader',
-        code: wgslShader
-    });
-
-    // Create a uniform buffer
-    const uniformBuffer = device.createBuffer({
-        size: 64, // 64 bytes for a 4x4 f32 matrix
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    // Render Pipeline
-    const pipeline = device.createRenderPipeline({
-        label: 'Triangle Pipeline',
-        layout: 'auto',
-        vertex: {
-            module: shaderModule,
-            entryPoint: 'vs_main',
-        },
-        fragment: {
-            module: shaderModule,
-            entryPoint: 'fs_main',
-            targets: [{ format: presentationFormat }],
-        },
-        primitive: {
-            topology: 'triangle-list',
+    // --- Show/hide overlay on pointer lock ---
+    document.addEventListener('pointerlockchange', () => {
+        if (overlay) {
+            overlay.style.display = document.pointerLockElement === canvas ? 'none' : 'flex';
         }
     });
 
-    // Create Bind Group for the uniform buffer
-    const bindGroup = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-            {
-                binding: 0,
-                resource: { buffer: uniformBuffer }
-            }
-        ]
-    });
+    // --- Game loop ---
+    let lastTime = performance.now();
 
-    // Wrap the SharedArrayBuffer in a Uint8Array for easy byte copying
-    const sharedMatrixBytes = new Uint8Array(sab);
+    function frame(now: number): void {
+        let dt = (now - lastTime) / 1000;
+        lastTime = now;
 
-    let animationFrameId: number;
+        // Cap delta time to prevent physics tunneling on tab switch
+        if (dt > MAX_DT) dt = MAX_DT;
 
-    function frame() {
-        // Copy exact bytes from SAB to the WebGPU uniform buffer
-        device.queue.writeBuffer(uniformBuffer, 0, sharedMatrixBytes);
+        // Update
+        player.update(dt, input, heightmap);
 
-        const commandEncoder = device.createCommandEncoder();
-        const textureView = context.getCurrentTexture().createView();
+        // Render
+        const commandEncoder = gpu.device.createCommandEncoder();
+        const textureView = gpu.context.getCurrentTexture().createView();
 
         const renderPass = commandEncoder.beginRenderPass({
             colorAttachments: [{
                 view: textureView,
-                clearValue: { r: 0.1, g: 0.1, b: 0.15, a: 1.0 },
+                clearValue: { r: 0.6, g: 0.7, b: 0.85, a: 1.0 }, // Sky color matching fog
                 loadOp: 'clear',
-                storeOp: 'store'
-            }]
+                storeOp: 'store',
+            }],
+            depthStencilAttachment: {
+                view: gpu.depthTexture.createView(),
+                depthClearValue: 1.0,
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store',
+            },
         });
 
-        renderPass.setPipeline(pipeline);
-        renderPass.setBindGroup(0, bindGroup);
-        renderPass.draw(3);
+        terrainPipeline.render(renderPass, player.camera.viewProjectionMatrix);
+
         renderPass.end();
+        gpu.device.queue.submit([commandEncoder.finish()]);
 
-        device.queue.submit([commandEncoder.finish()]);
-
-        animationFrameId = requestAnimationFrame(frame);
+        requestAnimationFrame(frame);
     }
 
-    // Start render loop
-    animationFrameId = requestAnimationFrame(frame);
-
-    // Cleanup logic for memory leaks (though POC usually doesn't need it, it's good practice)
-    return () => {
-        cancelAnimationFrame(animationFrameId);
-        worker.terminate();
-        uniformBuffer.destroy();
-        device.destroy();
-    };
+    requestAnimationFrame(frame);
 }
 
 init().catch(err => {
-    console.error("Initialization failed:", err);
+    console.error('Initialization failed:', err);
+    const errorEl = document.getElementById('error');
+    if (errorEl) {
+        errorEl.style.display = 'block';
+        errorEl.textContent = String(err);
+    }
 });

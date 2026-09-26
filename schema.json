@@ -1,0 +1,12 @@
+{
+  "structs": [
+    {
+      "name": "Transform",
+      "fields": [
+        { "name": "position", "type": "vec3<f32>" },
+        { "name": "rotation", "type": "vec4<f32>" },
+        { "name": "scale", "type": "vec3<f32>" }
+      ]
+    }
+  ]
+}
