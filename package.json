@@ -1,4 +1,5 @@
 {
+  "//": "Rust workspace definition and NPM scripts",
   "name": "game",
   "version": "1.0.0",
   "description": "",

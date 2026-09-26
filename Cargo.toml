@@ -1,0 +1,3 @@
+# Root workspace definition to manage Rust members
+[workspace]
+members = ["rust-engine"]

@@ -1,4 +1,4 @@
-// src/main.ts
+// UI/Input setup and Worker initialization\n// src/main.ts
 
 const wgslShader = `
 struct Uniforms {

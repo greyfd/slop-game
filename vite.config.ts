@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+// COOP/COEP header configuration\nimport { defineConfig } from 'vite';
 
 export default defineConfig({
   server: {
