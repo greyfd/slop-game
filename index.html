@@ -61,6 +61,36 @@
         padding: 2rem;
         text-align: center;
       }
+      #stats {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        background: rgba(0, 0, 0, 0.75);
+        color: #0f0;
+        padding: 8px 12px;
+        font-family: monospace;
+        font-size: 13px;
+        z-index: 20;
+        pointer-events: auto;
+        border-radius: 6px;
+        line-height: 1.6;
+        user-select: none;
+      }
+      #tick-toggle {
+        margin-top: 6px;
+        background: #333;
+        color: #fff;
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 4px 8px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 11px;
+        width: 100%;
+      }
+      #tick-toggle:hover {
+        background: #555;
+      }
       /* Crosshair */
       #crosshair {
         position: fixed;
@@ -86,6 +116,12 @@
     </style>
   </head>
   <body>
+    <div id="stats">
+      <div id="fps-counter">Render: 0 FPS</div>
+      <div id="hz-counter">Engine: 0 Hz</div>
+      <button id="tick-toggle">Switch to 120Hz</button>
+    </div>
+
     <div id="error"></div>
 
     <div id="overlay">

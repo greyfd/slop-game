@@ -1,52 +1,53 @@
-import { TransformOffsets } from '../shared/generated';
+/**
+ * Engine Worker.
+ *
+ * Loads the Rust WASM module and runs the game loop at ~60 Hz.
+ * Receives the SharedArrayBuffer from the main thread via postMessage.
+ */
 
-const ctx: Worker = self as any;
+import wasmInit, { init as engineInit, tick as engineTick } from '../../pkg/rust_engine';
 
-let sharedInt32: Int32Array;
-let sharedFloat32: Float32Array;
-let intervalId: number;
+let intervalId: number | undefined;
+let lastTime = performance.now();
 
-ctx.onmessage = (e: MessageEvent) => {
-    if (e.data.type === 'INIT') {
-        const sab = e.data.buffer as SharedArrayBuffer;
+function setTickRate(hz: number) {
+    if (intervalId !== undefined) {
+        clearInterval(intervalId);
+    }
+    
+    // Reset lastTime to prevent a massive delta spike during the switch
+    lastTime = performance.now();
+    
+    intervalId = self.setInterval(() => {
+        const now = performance.now();
+        let dt = (now - lastTime) / 1000;
+        lastTime = now;
         
-        sharedInt32 = new Int32Array(sab);
-        sharedFloat32 = new Float32Array(sab);
+        // Prevent death spirals if the worker pauses
+        if (dt > 0.1) dt = 0.1;
+        
+        engineTick(dt);
+    }, 1000 / hz);
+}
 
-        if (intervalId) clearInterval(intervalId);
+self.onmessage = async (e: MessageEvent) => {
+    const data = e.data as any;
 
-        const structSize = TransformOffsets._STRUCT_SIZE;
+    if (data.type === 'INIT') {
+        const sab = data.buffer;
 
-        // Run simulation loop at ~60Hz
-        intervalId = self.setInterval(() => {
-            // Task 2.3: Implement the Rust Engine Worker loop to write physics 
-            // and transform updates only to the inactive buffer.
-            const activeIndex = Atomics.load(sharedInt32, 0);
-            const inactiveIndex = activeIndex === 0 ? 1 : 0;
-            
-            // Calculate offsets
-            const inactiveOffsetBytes = 16 + (inactiveIndex * structSize);
-            const floatOffset = inactiveOffsetBytes / 4; 
-            
-            // Mock Physics (Moving and scaling the triangle)
-            const time = performance.now() / 1000;
-            const x = Math.cos(time) * 0.5;
-            const y = Math.sin(time) * 0.5;
+        // Initialize the WASM module (loads and instantiates the .wasm file)
+        await wasmInit();
 
-            // Write Position (vec3)
-            sharedFloat32[floatOffset + TransformOffsets.POSITION / 4] = x;
-            sharedFloat32[floatOffset + TransformOffsets.POSITION / 4 + 1] = y;
-            sharedFloat32[floatOffset + TransformOffsets.POSITION / 4 + 2] = 0; // z
+        // Pass the SharedArrayBuffer directly to Rust
+        engineInit(sab);
 
-            // Write Scale (vec3)
-            sharedFloat32[floatOffset + TransformOffsets.SCALE / 4] = 1.0;
-            sharedFloat32[floatOffset + TransformOffsets.SCALE / 4 + 1] = 1.0;
-            sharedFloat32[floatOffset + TransformOffsets.SCALE / 4 + 2] = 1.0;
-            
-            // Once a physics tick completes, flip the ActiveBufferIndex
-            Atomics.store(sharedInt32, 0, inactiveIndex);
-            
-            // (Note: in the actual Rust engine, file I/O will use FileSystemSyncAccessHandle from OPFS)
-        }, 1000 / 60);
+        // Notify main thread that initialization is complete
+        (self as unknown as Worker).postMessage({ type: 'READY' });
+
+        // Start the fixed-tick game loop at default 60 Hz
+        setTickRate(60);
+    } else if (data.type === 'SET_TICK_RATE') {
+        setTickRate(data.rate);
     }
 };

@@ -9,8 +9,10 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "vite",
-    "build": "tsc && vite build"
+    "codegen": "node scripts/codegen.js",
+    "build:wasm": "cd rust-engine && wasm-pack build --target web --out-dir ../pkg",
+    "dev": "npm run codegen && npm run build:wasm && vite",
+    "build": "npm run codegen && npm run build:wasm && tsc && vite build"
   },
   "keywords": [],
   "author": "",

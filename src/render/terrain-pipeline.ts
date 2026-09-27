@@ -3,27 +3,32 @@
  *
  * Creates the WebGPU render pipeline, vertex/index GPU buffers,
  * uniform buffer for the view-projection matrix, and bind group.
- * Provides a render() method to dispatch the terrain draw call.
+ * Supports updating mesh data when new terrain arrives from the SAB.
  */
 
 import { GPUContext } from './gpu';
-import { TerrainMeshData } from '../terrain/mesh';
 import terrainShaderSource from './shaders/terrain.wgsl?raw';
+
+export interface TerrainMeshData {
+    vertices: Float32Array;
+    indices: Uint32Array;
+    vertexCount: number;
+    indexCount: number;
+}
 
 export class TerrainPipeline {
     private readonly device: GPUDevice;
     private readonly pipeline: GPURenderPipeline;
-    private readonly vertexBuffer: GPUBuffer;
-    private readonly indexBuffer: GPUBuffer;
+    private vertexBuffer: GPUBuffer;
+    private indexBuffer: GPUBuffer;
     private readonly uniformBuffer: GPUBuffer;
     private readonly bindGroup: GPUBindGroup;
-    private readonly indexCount: number;
+    private indexCount: number;
 
     constructor(gpu: GPUContext, mesh: TerrainMeshData) {
         this.device = gpu.device;
         this.indexCount = mesh.indexCount;
 
-        // Shader module
         const shaderModule = gpu.device.createShaderModule({
             label: 'Terrain Shader',
             code: terrainShaderSource,
@@ -52,22 +57,11 @@ export class TerrainPipeline {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-        // Render pipeline
         const vertexBufferLayout: GPUVertexBufferLayout = {
-            arrayStride: 24, // 6 floats * 4 bytes
+            arrayStride: 24,
             attributes: [
-                {
-                    // position: vec3<f32>
-                    shaderLocation: 0,
-                    offset: 0,
-                    format: 'float32x3',
-                },
-                {
-                    // normal: vec3<f32>
-                    shaderLocation: 1,
-                    offset: 12,
-                    format: 'float32x3',
-                },
+                { shaderLocation: 0, offset: 0, format: 'float32x3' },
+                { shaderLocation: 1, offset: 12, format: 'float32x3' },
             ],
         };
 
@@ -96,26 +90,46 @@ export class TerrainPipeline {
             },
         });
 
-        // Bind group
         this.bindGroup = gpu.device.createBindGroup({
             label: 'Terrain Bind Group',
             layout: this.pipeline.getBindGroupLayout(0),
-            entries: [
-                {
-                    binding: 0,
-                    resource: { buffer: this.uniformBuffer },
-                },
-            ],
+            entries: [{
+                binding: 0,
+                resource: { buffer: this.uniformBuffer },
+            }],
         });
     }
 
     /**
-     * Upload the view-projection matrix and encode the terrain draw call
-     * into the provided render pass.
+     * Replace the terrain mesh data with new buffers from the SAB.
+     * Called when the terrain_ready flag is detected.
      */
+    updateMesh(vertices: Float32Array, indices: Uint32Array, indexCount: number): void {
+        // Destroy old buffers
+        this.vertexBuffer.destroy();
+        this.indexBuffer.destroy();
+
+        // Create new vertex buffer
+        this.vertexBuffer = this.device.createBuffer({
+            label: 'Terrain Vertices',
+            size: vertices.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
+
+        // Create new index buffer
+        this.indexBuffer = this.device.createBuffer({
+            label: 'Terrain Indices',
+            size: indices.byteLength,
+            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(this.indexBuffer, 0, indices);
+
+        this.indexCount = indexCount;
+    }
+
     render(pass: GPURenderPassEncoder, viewProjectionMatrix: Float32Array): void {
         this.device.queue.writeBuffer(this.uniformBuffer, 0, viewProjectionMatrix);
-
         pass.setPipeline(this.pipeline);
         pass.setBindGroup(0, this.bindGroup);
         pass.setVertexBuffer(0, this.vertexBuffer);
