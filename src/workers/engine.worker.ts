@@ -6,6 +6,7 @@
  */
 
 import wasmInit, { init as engineInit, tick as engineTick } from '../../pkg/rust_engine';
+import { MainToWorkerMessage, WorkerToMainMessage } from '../shared/worker-messages';
 
 let intervalId: number | undefined;
 let lastTime = performance.now();
@@ -30,12 +31,8 @@ function setTickRate(hz: number) {
     }, 1000 / hz);
 }
 
-type WorkerMessage = 
-    | { type: 'INIT'; buffer: SharedArrayBuffer }
-    | { type: 'SET_TICK_RATE'; rate: number };
-
-self.onmessage = async (e: MessageEvent) => {
-    const data = e.data as WorkerMessage;
+self.onmessage = async (e: MessageEvent<MainToWorkerMessage>) => {
+    const data = e.data;
 
     if (data.type === 'INIT') {
         const sab = data.buffer;
@@ -46,8 +43,8 @@ self.onmessage = async (e: MessageEvent) => {
         // Pass the SharedArrayBuffer directly to Rust
         engineInit(sab);
 
-        // Notify main thread that initialization is complete
-        postMessage({ type: 'READY' });
+        const readyMsg: WorkerToMainMessage = { type: 'READY' };
+        postMessage(readyMsg);
 
         // Start the fixed-tick game loop at default 60 Hz
         setTickRate(60);

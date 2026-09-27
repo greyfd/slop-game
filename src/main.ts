@@ -16,6 +16,7 @@
 import { MemoryMap } from './shared/generated';
 import { InputWriter } from './shared/input-writer';
 import { SABReader } from './shared/sab-reader';
+import { MainToWorkerMessage, WorkerToMainMessage } from './shared/worker-messages';
 import { Input } from './input';
 import { initGPU, recreateDepthTexture } from './render/gpu';
 import { TerrainPipeline } from './render/terrain-pipeline';
@@ -64,15 +65,16 @@ async function init(): Promise<void> {
 
     // Wait for worker to be ready before starting render loop
     const workerReady = new Promise<void>((resolve) => {
-        worker.onmessage = (e: MessageEvent) => {
-            const data = e.data as { type: string };
+        worker.onmessage = (e: MessageEvent<WorkerToMainMessage>) => {
+            const data = e.data;
             if (data.type === 'READY') {
                 resolve();
             }
         };
     });
 
-    worker.postMessage({ type: 'INIT', buffer: sab });
+    const initMsg: MainToWorkerMessage = { type: 'INIT', buffer: sab };
+    worker.postMessage(initMsg);
     await workerReady;
 
     // --- Initialize input ---
@@ -149,7 +151,8 @@ async function init(): Promise<void> {
         tickToggle.addEventListener('click', () => {
             currentEngineHz = currentEngineHz === 60 ? 120 : 60;
             tickToggle.textContent = `Switch to ${currentEngineHz === 60 ? 120 : 60}Hz`;
-            worker.postMessage({ type: 'SET_TICK_RATE', rate: currentEngineHz });
+            const msg: MainToWorkerMessage = { type: 'SET_TICK_RATE', rate: currentEngineHz };
+            worker.postMessage(msg);
         });
     }
 
