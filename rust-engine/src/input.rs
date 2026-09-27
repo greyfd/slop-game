@@ -35,8 +35,8 @@ pub fn drain_input() -> AccumulatedInput {
     let mut result = AccumulatedInput::default();
     let mut frames_read = 0u32;
 
-    let write_head = memory::load_input_write_head();
-    let mut read_head = memory::load_input_read_head();
+    let write_head = memory::load_input_write_head() % (INPUT_RING_CAPACITY as u32);
+    let mut read_head = memory::load_input_read_head() % (INPUT_RING_CAPACITY as u32);
 
     unsafe {
         while read_head != write_head {

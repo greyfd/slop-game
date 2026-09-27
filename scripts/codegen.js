@@ -133,7 +133,7 @@ for (const struct of schema.structs) {
     tsFields.push(`    static readonly _STRUCT_SIZE = ${structSize};`);
 
     // Emit Rust struct
-    rustCode += `#[repr(C)]\n#[derive(Debug, Copy, Clone)]\npub struct ${struct.name} {\n${rustFields.join('\n')}\n}\n\n`;
+    rustCode += `#[repr(C, align(16))]\n#[derive(Debug, Copy, Clone)]\npub struct ${struct.name} {\n${rustFields.join('\n')}\n}\n\n`;
 
     // Emit WGSL struct (only for gpu-visible)
     if (struct.gpu !== false) {

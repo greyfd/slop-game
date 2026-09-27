@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY
 
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Debug, Copy, Clone)]
 pub struct InputFrame {
     pub keys_bitmap: u32,
@@ -9,7 +9,7 @@ pub struct InputFrame {
     pub dt: f32,
 }
 
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Debug, Copy, Clone)]
 pub struct FrameState {
     pub view_matrix: [f32; 16],
