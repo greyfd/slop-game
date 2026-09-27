@@ -47,7 +47,7 @@ self.onmessage = async (e: MessageEvent) => {
         engineInit(sab);
 
         // Notify main thread that initialization is complete
-        (self as unknown as Worker).postMessage({ type: 'READY' });
+        postMessage({ type: 'READY' });
 
         // Start the fixed-tick game loop at default 60 Hz
         setTickRate(60);

@@ -100,7 +100,7 @@ async function init(): Promise<void> {
 
     // --- Hoisted Render Resources ---
     const colorAttachment: GPURenderPassColorAttachment = {
-        view: undefined as unknown as GPUTextureView, // updated per-frame
+        view: gpu.depthTextureView, // dummy initialization, updated per-frame
         clearValue: { r: 0.6, g: 0.7, b: 0.85, a: 1.0 },
         loadOp: 'clear',
         storeOp: 'store',
@@ -115,7 +115,7 @@ async function init(): Promise<void> {
             depthStoreOp: 'store',
         },
     };
-    const submitArray: GPUCommandBuffer[] = [undefined as unknown as GPUCommandBuffer];
+    const submitArray: GPUCommandBuffer[] = [];
 
     // --- Handle resize ---
     window.addEventListener('resize', () => {

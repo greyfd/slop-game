@@ -35,7 +35,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
         throw new Error('Failed to get WebGPU canvas context.');
     }
     // getContext('webgpu') is typed as RenderingContext union; narrow to GPUCanvasContext
-    const context: GPUCanvasContext = rawContext as unknown as GPUCanvasContext;
+    const context = rawContext as GPUCanvasContext;
 
     const format = navigator.gpu.getPreferredCanvasFormat();
 
