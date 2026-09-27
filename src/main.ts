@@ -98,10 +98,32 @@ async function init(): Promise<void> {
     // --- Terrain pipeline (created after first terrain data arrives) ---
     let terrainPipeline: TerrainPipeline | null = null;
 
+    // --- Hoisted Render Resources ---
+    const colorAttachment: GPURenderPassColorAttachment = {
+        view: undefined as unknown as GPUTextureView, // updated per-frame
+        clearValue: { r: 0.6, g: 0.7, b: 0.85, a: 1.0 },
+        loadOp: 'clear',
+        storeOp: 'store',
+    };
+    
+    const renderPassDescriptor: GPURenderPassDescriptor = {
+        colorAttachments: [colorAttachment],
+        depthStencilAttachment: {
+            view: gpu.depthTextureView, // updated on resize
+            depthClearValue: 1.0,
+            depthLoadOp: 'clear',
+            depthStoreOp: 'store',
+        },
+    };
+    const submitArray: GPUCommandBuffer[] = [undefined as unknown as GPUCommandBuffer];
+
     // --- Handle resize ---
     window.addEventListener('resize', () => {
         resizeCanvas();
         gpu = recreateDepthTexture(gpu);
+        if (renderPassDescriptor.depthStencilAttachment) {
+            renderPassDescriptor.depthStencilAttachment.view = gpu.depthTextureView;
+        }
         updateProjection();
     });
 
@@ -130,6 +152,7 @@ async function init(): Promise<void> {
             worker.postMessage({ type: 'SET_TICK_RATE', rate: currentEngineHz });
         });
     }
+
 
     // --- Game loop ---
     let lastTime = performance.now();
@@ -204,29 +227,17 @@ async function init(): Promise<void> {
 
         // 4. Render
         const commandEncoder = gpu.device.createCommandEncoder();
-        const textureView = gpu.context.getCurrentTexture().createView();
+        colorAttachment.view = gpu.context.getCurrentTexture().createView();
 
-        const renderPass = commandEncoder.beginRenderPass({
-            colorAttachments: [{
-                view: textureView,
-                clearValue: { r: 0.6, g: 0.7, b: 0.85, a: 1.0 },
-                loadOp: 'clear',
-                storeOp: 'store',
-            }],
-            depthStencilAttachment: {
-                view: gpu.depthTexture.createView(),
-                depthClearValue: 1.0,
-                depthLoadOp: 'clear',
-                depthStoreOp: 'store',
-            },
-        });
+        const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
 
         if (terrainPipeline) {
             terrainPipeline.render(renderPass, viewProjectionMatrix);
         }
 
         renderPass.end();
-        gpu.device.queue.submit([commandEncoder.finish()]);
+        submitArray[0] = commandEncoder.finish();
+        gpu.device.queue.submit(submitArray);
 
         requestAnimationFrame(frame);
     }

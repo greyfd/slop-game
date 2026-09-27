@@ -5,6 +5,8 @@
  * Pointer lock is requested on canvas click and released on Escape.
  */
 
+const PREVENT_DEFAULT_KEYS = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+
 export class Input {
     private readonly keys: Set<string> = new Set();
     private dx: number = 0;
@@ -25,7 +27,7 @@ export class Input {
         this.onKeyDown = (e: KeyboardEvent): void => {
             this.keys.add(e.code);
             // Prevent default for game keys to stop browser scroll
-            if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+            if (PREVENT_DEFAULT_KEYS.has(e.code)) {
                 e.preventDefault();
             }
         };

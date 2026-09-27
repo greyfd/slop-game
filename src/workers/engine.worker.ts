@@ -30,8 +30,12 @@ function setTickRate(hz: number) {
     }, 1000 / hz);
 }
 
+type WorkerMessage = 
+    | { type: 'INIT'; buffer: SharedArrayBuffer }
+    | { type: 'SET_TICK_RATE'; rate: number };
+
 self.onmessage = async (e: MessageEvent) => {
-    const data = e.data as any;
+    const data = e.data as WorkerMessage;
 
     if (data.type === 'INIT') {
         const sab = data.buffer;

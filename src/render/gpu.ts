@@ -8,6 +8,7 @@ export interface GPUContext {
     format: GPUTextureFormat;
     canvas: HTMLCanvasElement;
     depthTexture: GPUTexture;
+    depthTextureView: GPUTextureView;
     depthFormat: GPUTextureFormat;
 }
 
@@ -51,7 +52,9 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
-    return { device, context, format, canvas, depthTexture, depthFormat };
+    const depthTextureView = depthTexture.createView();
+
+    return { device, context, format, canvas, depthTexture, depthTextureView, depthFormat };
 }
 
 /**
@@ -64,5 +67,6 @@ export function recreateDepthTexture(gpu: GPUContext): GPUContext {
         format: gpu.depthFormat,
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
-    return { ...gpu, depthTexture };
+    const depthTextureView = depthTexture.createView();
+    return { ...gpu, depthTexture, depthTextureView };
 }
