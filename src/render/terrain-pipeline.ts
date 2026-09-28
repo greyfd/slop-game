@@ -1,67 +1,49 @@
-/**
- * Terrain rendering pipeline.
- *
- * Creates the WebGPU render pipeline, vertex/index GPU buffers,
- * uniform buffer for the view-projection matrix, and bind group.
- * Supports updating mesh data when new terrain arrives from the SAB.
- */
-
 import { GPUContext } from './gpu';
 import terrainShaderSource from './shaders/terrain.wgsl?raw';
-
-export interface TerrainMeshData {
-    vertices: Float32Array;
-    indices: Uint32Array;
-    vertexCount: number;
-    indexCount: number;
-}
+import { MemoryMap } from '../shared/generated';
 
 export class TerrainPipeline {
     private readonly device: GPUDevice;
     private readonly pipeline: GPURenderPipeline;
-    private vertexBuffer: GPUBuffer;
-    private indexBuffer: GPUBuffer;
+    private readonly vertexBuffer: GPUBuffer;
+    private readonly indexBuffer: GPUBuffer;
     private readonly uniformBuffer: GPUBuffer;
     private readonly bindGroup: GPUBindGroup;
-    private indexCount: number;
 
-    constructor(gpu: GPUContext, mesh: TerrainMeshData) {
+    constructor(gpu: GPUContext) {
         this.device = gpu.device;
-        this.indexCount = mesh.indexCount;
 
         const shaderModule = gpu.device.createShaderModule({
             label: 'Terrain Shader',
             code: terrainShaderSource,
         });
 
-        // Vertex buffer
+        // Allocate huge buffers for all 25 chunks
         this.vertexBuffer = gpu.device.createBuffer({
             label: 'Terrain Vertices',
-            size: mesh.vertices.byteLength,
+            size: MemoryMap.TERRAIN_CHUNK_COUNT * MemoryMap.TERRAIN_VERTEX_STRIDE,
             usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         });
-        gpu.device.queue.writeBuffer(this.vertexBuffer, 0, mesh.vertices);
 
-        // Index buffer
         this.indexBuffer = gpu.device.createBuffer({
             label: 'Terrain Indices',
-            size: mesh.indices.byteLength,
+            size: MemoryMap.TERRAIN_CHUNK_COUNT * MemoryMap.TERRAIN_INDEX_STRIDE,
             usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
         });
-        gpu.device.queue.writeBuffer(this.indexBuffer, 0, mesh.indices);
 
-        // Uniform buffer: mat4x4<f32> = 64 bytes
+        // Uniform buffer: mat4x4<f32> (64) + vec4<f32> (16) = 80 bytes
         this.uniformBuffer = gpu.device.createBuffer({
             label: 'Terrain Uniforms',
-            size: 64,
+            size: 80,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
         const vertexBufferLayout: GPUVertexBufferLayout = {
-            arrayStride: 24,
+            arrayStride: 36,
             attributes: [
                 { shaderLocation: 0, offset: 0, format: 'float32x3' },
                 { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                { shaderLocation: 2, offset: 24, format: 'float32x3' },
             ],
         };
 
@@ -101,39 +83,34 @@ export class TerrainPipeline {
     }
 
     /**
-     * Replace the terrain mesh data with new buffers from the SAB.
-     * Called when the terrain_ready flag is detected.
+     * Upload a single chunk's mesh data from SAB to the GPU buffer.
      */
-    updateMesh(vertices: Float32Array, indices: Uint32Array, indexCount: number): void {
-        // Destroy old buffers
-        this.vertexBuffer.destroy();
-        this.indexBuffer.destroy();
-
-        // Create new vertex buffer
-        this.vertexBuffer = this.device.createBuffer({
-            label: 'Terrain Vertices',
-            size: vertices.byteLength,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-        this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
-
-        // Create new index buffer
-        this.indexBuffer = this.device.createBuffer({
-            label: 'Terrain Indices',
-            size: indices.byteLength,
-            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        });
-        this.device.queue.writeBuffer(this.indexBuffer, 0, indices);
-
-        this.indexCount = indexCount;
+    uploadChunk(slot: number, vertices: Float32Array, indices: Uint32Array): void {
+        const vertexOffset = slot * MemoryMap.TERRAIN_VERTEX_STRIDE;
+        const indexOffset = slot * MemoryMap.TERRAIN_INDEX_STRIDE;
+        
+        this.device.queue.writeBuffer(this.vertexBuffer, vertexOffset, vertices);
+        this.device.queue.writeBuffer(this.indexBuffer, indexOffset, indices);
     }
 
-    render(pass: GPURenderPassEncoder, viewProjectionMatrix: Float32Array): void {
-        this.device.queue.writeBuffer(this.uniformBuffer, 0, viewProjectionMatrix);
+    render(pass: GPURenderPassEncoder, viewProjectionMatrix: Float32Array, cameraPos: Float32Array, activeSlots: number[]): void {
+        // Upload mat4 (64 bytes) and vec3 as vec4 (16 bytes)
+        const uniformData = new Float32Array(20);
+        uniformData.set(viewProjectionMatrix, 0);
+        uniformData.set(cameraPos, 16);
+        
+        this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
         pass.setPipeline(this.pipeline);
         pass.setBindGroup(0, this.bindGroup);
         pass.setVertexBuffer(0, this.vertexBuffer);
         pass.setIndexBuffer(this.indexBuffer, 'uint32');
-        pass.drawIndexed(this.indexCount);
+        
+        for (const slot of activeSlots) {
+            const indexCount = MemoryMap.TERRAIN_MAX_INDICES_PER_CHUNK;
+            const firstIndex = (slot * MemoryMap.TERRAIN_INDEX_STRIDE) / 4;
+            const baseVertex = slot * MemoryMap.TERRAIN_MAX_VERTICES_PER_CHUNK;
+            
+            pass.drawIndexed(indexCount, 1, firstIndex, baseVertex);
+        }
     }
 }

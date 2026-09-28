@@ -38,16 +38,22 @@ export class MemoryMap {
     static readonly BUFFER_B_START = 2192;
     static readonly FRAME_STATE_SIZE = 128;
 
-    // --- Terrain Staging ---
-    static readonly TERRAIN_VERTEX_COUNT = 2320;
-    static readonly TERRAIN_INDEX_COUNT = 2324;
-    static readonly TERRAIN_VERTICES_START = 2336;
-    static readonly TERRAIN_INDICES_START = 395552;
-    static readonly TERRAIN_MAX_VERTICES = 16384;
-    static readonly TERRAIN_MAX_INDICES = 96774;
-    static readonly TERRAIN_FLOATS_PER_VERTEX = 6;
+    // --- Terrain Staging (Chunk Array) ---
+    static readonly TERRAIN_CHUNK_COUNT = 289;
+    static readonly TERRAIN_CHUNK_RADIUS = 8;
+    static readonly TERRAIN_META_START = 2320;
+    static readonly TERRAIN_META_STRIDE = 16;
+    static readonly TERRAIN_VERTICES_START = 6944;
+    static readonly TERRAIN_VERTEX_STRIDE = 589824;
+    static readonly TERRAIN_INDICES_START = 170466080;
+    static readonly TERRAIN_INDEX_STRIDE = 387096;
+    static readonly TERRAIN_MAX_VERTICES_PER_CHUNK = 16384;
+    static readonly TERRAIN_MAX_INDICES_PER_CHUNK = 96774;
+    static readonly TERRAIN_FLOATS_PER_VERTEX = 9;
+    static readonly MINIMAP_DATA_START = 282336832;
+    static readonly MINIMAP_DATA_SIZE = 4096;
 
     // --- Total ---
-    static readonly TOTAL_SAB_SIZE = 782656;
+    static readonly TOTAL_SAB_SIZE = 282340928;
 }
 

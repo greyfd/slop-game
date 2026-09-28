@@ -28,7 +28,9 @@
   "memory_regions": {
     "input_ring_buffer_capacity": 128,
     "terrain_grid_size": 128,
-    "terrain_floats_per_vertex": 6,
-    "terrain_bytes_per_index": 4
+    "terrain_chunk_radius": 8,
+    "terrain_floats_per_vertex": 9,
+    "terrain_bytes_per_index": 4,
+    "minimap_data_size": 4096
   }
 }

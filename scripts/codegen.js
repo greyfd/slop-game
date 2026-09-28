@@ -167,6 +167,8 @@ for (const struct of schema.structs) {
 const regions = schema.memory_regions;
 const inputCapacity = regions.input_ring_buffer_capacity;
 const gridSize = regions.terrain_grid_size;
+const chunkRadius = regions.terrain_chunk_radius || 1;
+const chunkCount = Math.pow(chunkRadius * 2 + 1, 2);
 const floatsPerVert = regions.terrain_floats_per_vertex;
 const bytesPerIndex = regions.terrain_bytes_per_index;
 
@@ -185,7 +187,7 @@ let offset = 0;
 const STATE_INDEX = offset;           offset += 4;
 const INPUT_WRITE_HEAD = offset;      offset += 4;
 const INPUT_READ_HEAD = offset;       offset += 4;
-const TERRAIN_READY = offset;         offset += 4;
+const TERRAIN_READY = offset;         offset += 4; // We can keep this as a global "is any chunk ready" or repurpose it
 
 // Input ring buffer
 offset = alignUp(offset, 16);
@@ -201,26 +203,35 @@ offset = alignUp(offset, 16);
 const BUFFER_B_START = offset;
 offset += frameStateSize;
 
-// Terrain metadata
+// Terrain chunk metadata array (16 bytes per chunk)
+// ChunkMeta { state: u32, chunk_x: i32, chunk_z: i32, pad: u32 }
 offset = alignUp(offset, 16);
-const TERRAIN_VERTEX_COUNT = offset;  offset += 4;
-const TERRAIN_INDEX_COUNT = offset;   offset += 4;
-offset += 8; // padding to 16
+const TERRAIN_META_START = offset;
+const metaBytesPerChunk = 16;
+offset += chunkCount * metaBytesPerChunk;
 
-// Terrain vertex data
+// Terrain vertex data array
 offset = alignUp(offset, 16);
 const TERRAIN_VERTICES_START = offset;
 const vertexCount = gridSize * gridSize;
-const vertexBytes = vertexCount * floatsPerVert * 4;
-offset += vertexBytes;
+const vertexBytesPerChunk = vertexCount * floatsPerVert * 4;
+const totalVertexBytes = chunkCount * vertexBytesPerChunk;
+offset += totalVertexBytes;
 
-// Terrain index data
+// Terrain index data array
 offset = alignUp(offset, 16);
 const TERRAIN_INDICES_START = offset;
 const quadsPerAxis = gridSize - 1;
 const indexCount = quadsPerAxis * quadsPerAxis * 6;
-const indexBytes = indexCount * bytesPerIndex;
-offset += indexBytes;
+const indexBytesPerChunk = indexCount * bytesPerIndex;
+const totalIndexBytes = chunkCount * indexBytesPerChunk;
+offset += totalIndexBytes;
+
+// Minimap data (64x64 u8 array)
+offset = alignUp(offset, 16);
+const MINIMAP_DATA_START = offset;
+const minimapDataSize = regions.minimap_data_size || 4096;
+offset += minimapDataSize;
 
 // Total SAB size (aligned to 16)
 const TOTAL_SAB_SIZE = alignUp(offset, 16);
@@ -244,14 +255,20 @@ tsCode += `    static readonly BUFFER_A_START = ${BUFFER_A_START};\n`;
 tsCode += `    static readonly BUFFER_B_START = ${BUFFER_B_START};\n`;
 tsCode += `    static readonly FRAME_STATE_SIZE = ${frameStateSize};\n`;
 tsCode += `\n`;
-tsCode += `    // --- Terrain Staging ---\n`;
-tsCode += `    static readonly TERRAIN_VERTEX_COUNT = ${TERRAIN_VERTEX_COUNT};\n`;
-tsCode += `    static readonly TERRAIN_INDEX_COUNT = ${TERRAIN_INDEX_COUNT};\n`;
+tsCode += `    // --- Terrain Staging (Chunk Array) ---\n`;
+tsCode += `    static readonly TERRAIN_CHUNK_COUNT = ${chunkCount};\n`;
+tsCode += `    static readonly TERRAIN_CHUNK_RADIUS = ${chunkRadius};\n`;
+tsCode += `    static readonly TERRAIN_META_START = ${TERRAIN_META_START};\n`;
+tsCode += `    static readonly TERRAIN_META_STRIDE = ${metaBytesPerChunk};\n`;
 tsCode += `    static readonly TERRAIN_VERTICES_START = ${TERRAIN_VERTICES_START};\n`;
+tsCode += `    static readonly TERRAIN_VERTEX_STRIDE = ${vertexBytesPerChunk};\n`;
 tsCode += `    static readonly TERRAIN_INDICES_START = ${TERRAIN_INDICES_START};\n`;
-tsCode += `    static readonly TERRAIN_MAX_VERTICES = ${vertexCount};\n`;
-tsCode += `    static readonly TERRAIN_MAX_INDICES = ${indexCount};\n`;
+tsCode += `    static readonly TERRAIN_INDEX_STRIDE = ${indexBytesPerChunk};\n`;
+tsCode += `    static readonly TERRAIN_MAX_VERTICES_PER_CHUNK = ${vertexCount};\n`;
+tsCode += `    static readonly TERRAIN_MAX_INDICES_PER_CHUNK = ${indexCount};\n`;
 tsCode += `    static readonly TERRAIN_FLOATS_PER_VERTEX = ${floatsPerVert};\n`;
+tsCode += `    static readonly MINIMAP_DATA_START = ${MINIMAP_DATA_START};\n`;
+tsCode += `    static readonly MINIMAP_DATA_SIZE = ${minimapDataSize};\n`;
 tsCode += `\n`;
 tsCode += `    // --- Total ---\n`;
 tsCode += `    static readonly TOTAL_SAB_SIZE = ${TOTAL_SAB_SIZE};\n`;
@@ -272,13 +289,19 @@ rustCode += `pub const BUFFER_A_START: usize = ${BUFFER_A_START};\n`;
 rustCode += `pub const BUFFER_B_START: usize = ${BUFFER_B_START};\n`;
 rustCode += `pub const FRAME_STATE_SIZE: usize = ${frameStateSize};\n`;
 rustCode += `\n`;
-rustCode += `pub const TERRAIN_VERTEX_COUNT_OFFSET: usize = ${TERRAIN_VERTEX_COUNT};\n`;
-rustCode += `pub const TERRAIN_INDEX_COUNT_OFFSET: usize = ${TERRAIN_INDEX_COUNT};\n`;
+rustCode += `pub const TERRAIN_CHUNK_COUNT: usize = ${chunkCount};\n`;
+rustCode += `pub const TERRAIN_CHUNK_RADIUS: usize = ${chunkRadius};\n`;
+rustCode += `pub const TERRAIN_META_START: usize = ${TERRAIN_META_START};\n`;
+rustCode += `pub const TERRAIN_META_STRIDE: usize = ${metaBytesPerChunk};\n`;
 rustCode += `pub const TERRAIN_VERTICES_START: usize = ${TERRAIN_VERTICES_START};\n`;
+rustCode += `pub const TERRAIN_VERTEX_STRIDE: usize = ${vertexBytesPerChunk};\n`;
 rustCode += `pub const TERRAIN_INDICES_START: usize = ${TERRAIN_INDICES_START};\n`;
-rustCode += `pub const TERRAIN_MAX_VERTICES: usize = ${vertexCount};\n`;
-rustCode += `pub const TERRAIN_MAX_INDICES: usize = ${indexCount};\n`;
+rustCode += `pub const TERRAIN_INDEX_STRIDE: usize = ${indexBytesPerChunk};\n`;
+rustCode += `pub const TERRAIN_MAX_VERTICES_PER_CHUNK: usize = ${vertexCount};\n`;
+rustCode += `pub const TERRAIN_MAX_INDICES_PER_CHUNK: usize = ${indexCount};\n`;
 rustCode += `pub const TERRAIN_FLOATS_PER_VERTEX: usize = ${floatsPerVert};\n`;
+rustCode += `pub const MINIMAP_DATA_START: usize = ${MINIMAP_DATA_START};\n`;
+rustCode += `pub const MINIMAP_DATA_SIZE: usize = ${minimapDataSize};\n`;
 rustCode += `\n`;
 rustCode += `pub const TOTAL_SAB_SIZE: usize = ${TOTAL_SAB_SIZE};\n`;
 
@@ -306,6 +329,7 @@ console.log(`\nMemory Map Summary:`);
 console.log(`  InputFrame size:    ${inputFrameSize} bytes`);
 console.log(`  FrameState size:    ${frameStateSize} bytes`);
 console.log(`  Input ring buffer:  ${inputCapacity} slots x ${inputFrameSize} bytes = ${inputCapacity * inputFrameSize} bytes`);
-console.log(`  Terrain vertices:   ${vertexCount} verts x ${floatsPerVert * 4} bytes = ${vertexBytes} bytes`);
-console.log(`  Terrain indices:    ${indexCount} indices x ${bytesPerIndex} bytes = ${indexBytes} bytes`);
+console.log(`  Terrain chunks:     ${chunkCount} (Radius: ${chunkRadius})`);
+console.log(`  Terrain vertices:   ${chunkCount} chunks x ${vertexBytesPerChunk} bytes = ${totalVertexBytes} bytes`);
+console.log(`  Terrain indices:    ${chunkCount} chunks x ${indexBytesPerChunk} bytes = ${totalIndexBytes} bytes`);
 console.log(`  Total SAB size:     ${TOTAL_SAB_SIZE} bytes (${(TOTAL_SAB_SIZE / 1024 / 1024).toFixed(2)} MB)`);

@@ -6,7 +6,6 @@ export class SABReader {
     private readonly float32: Float32Array;
     private readonly uint32: Uint32Array;
     private readonly stateIndexSlot: number;
-    private readonly terrainReadySlot: number;
 
     constructor(sab: SharedArrayBuffer) {
         this.sab = sab;
@@ -14,7 +13,6 @@ export class SABReader {
         this.float32 = new Float32Array(sab);
         this.uint32 = new Uint32Array(sab);
         this.stateIndexSlot = MemoryMap.STATE_INDEX / 4;
-        this.terrainReadySlot = MemoryMap.TERRAIN_READY / 4;
     }
 
     /** Get the byte offset of the currently active FrameState buffer. */
@@ -47,33 +45,27 @@ export class SABReader {
         }
     }
 
-    /** Check if new terrain data is ready. Returns true and clears the flag if so. */
-    checkTerrainReady(): boolean {
-        const isReady = Atomics.load(this.int32, this.terrainReadySlot);
-        if (isReady === 1) {
-            Atomics.store(this.int32, this.terrainReadySlot, 0);
-            return true;
-        }
-        return false;
+    /** Read the state of a specific chunk slot (0 = Empty, 2 = Needs Upload, 3 = Active) */
+    getChunkState(slot: number): number {
+        const offset = (MemoryMap.TERRAIN_META_START + slot * MemoryMap.TERRAIN_META_STRIDE) / 4;
+        return Atomics.load(this.int32, offset);
     }
 
-    /** Read terrain vertex count. */
-    getTerrainVertexCount(): number {
-        return this.int32[MemoryMap.TERRAIN_VERTEX_COUNT / 4];
+    /** Set the state of a specific chunk slot */
+    setChunkState(slot: number, state: number): void {
+        const offset = (MemoryMap.TERRAIN_META_START + slot * MemoryMap.TERRAIN_META_STRIDE) / 4;
+        Atomics.store(this.int32, offset, state);
     }
 
-    /** Read terrain index count. */
-    getTerrainIndexCount(): number {
-        return this.int32[MemoryMap.TERRAIN_INDEX_COUNT / 4];
+    /** Get a Float32Array view of a chunk's vertex data. */
+    getChunkVertices(slot: number): Float32Array {
+        const offset = MemoryMap.TERRAIN_VERTICES_START + slot * MemoryMap.TERRAIN_VERTEX_STRIDE;
+        return new Float32Array(this.sab, offset, MemoryMap.TERRAIN_MAX_VERTICES_PER_CHUNK * MemoryMap.TERRAIN_FLOATS_PER_VERTEX);
     }
 
-    /** Get a Float32Array view of the terrain vertex data. */
-    getTerrainVertices(vertexCount: number): Float32Array {
-        return new Float32Array(this.sab, MemoryMap.TERRAIN_VERTICES_START, vertexCount * MemoryMap.TERRAIN_FLOATS_PER_VERTEX);
-    }
-
-    /** Get a Uint32Array view of the terrain index data. */
-    getTerrainIndices(indexCount: number): Uint32Array {
-        return new Uint32Array(this.sab, MemoryMap.TERRAIN_INDICES_START, indexCount);
+    /** Get a Uint32Array view of a chunk's index data. */
+    getChunkIndices(slot: number): Uint32Array {
+        const offset = MemoryMap.TERRAIN_INDICES_START + slot * MemoryMap.TERRAIN_INDEX_STRIDE;
+        return new Uint32Array(this.sab, offset, MemoryMap.TERRAIN_MAX_INDICES_PER_CHUNK);
     }
 }

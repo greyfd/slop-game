@@ -2,7 +2,7 @@
   "//": "Rust workspace definition and NPM scripts",
   "name": "game",
   "version": "1.0.0",
-  "description": "",
+  "description": "A high-performance WebGPU and Rust/Wasm browser game.",
   "main": "index.js",
   "directories": {
     "doc": "docs"

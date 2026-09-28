@@ -10,6 +10,8 @@ mod input;
 mod player;
 mod camera;
 mod terrain;
+mod noise;
+mod macro_map;
 
 use wasm_bindgen::prelude::*;
 use js_sys::SharedArrayBuffer;
@@ -34,8 +36,14 @@ pub fn init(sab: JsValue) {
     // Initialize memory views
     memory::init(&shared_buffer);
 
-    // Generate terrain (writes to SAB)
-    terrain::generate();
+    // Initialize the global Macro Map exactly once
+    // We can use a deterministic seed, e.g., 42
+    let map = macro_map::MacroMap::generate(42);
+
+    memory::write_minimap_data(&map.biome);
+
+    // Initialize chunk manager and pre-allocate pool, passing the immutable Macro Map
+    terrain::init(map);
 
     // Create player at world center
     unsafe {
@@ -58,6 +66,9 @@ pub fn tick(dt: f32) {
         }
     };
     player.update(&accumulated);
+
+    // Update Terrain Chunk Manager
+    terrain::update(player.position.x, player.position.z);
 
     // 3. Compute view matrix
     let view_matrix = camera::fps_view_matrix(player.position, player.yaw, player.pitch);

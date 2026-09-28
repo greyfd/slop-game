@@ -6,15 +6,15 @@
 //! For atomic operations (control words), we call js_sys::Atomics directly.
 //! For bulk data (FrameState, terrain), we use typed array get/set methods.
 
-use js_sys::{Atomics, Int32Array, Float32Array, Uint32Array, SharedArrayBuffer};
+use js_sys::{Atomics, Int32Array, Float32Array, Uint32Array, Uint8Array, SharedArrayBuffer};
 use wasm_bindgen::JsValue;
 
 use crate::generated::{
     FrameState, InputFrame,
     BUFFER_A_START, BUFFER_B_START,
     INPUT_READ_HEAD, INPUT_RING_START, INPUT_WRITE_HEAD, INPUT_RING_CAPACITY,
-    STATE_INDEX, TERRAIN_INDEX_COUNT_OFFSET, TERRAIN_INDICES_START, TERRAIN_READY,
-    TERRAIN_VERTEX_COUNT_OFFSET, TERRAIN_VERTICES_START, TERRAIN_FLOATS_PER_VERTEX,
+    STATE_INDEX, TERRAIN_INDICES_START, TERRAIN_READY,
+    TERRAIN_VERTICES_START, TERRAIN_FLOATS_PER_VERTEX,
     INPUT_FRAME_SIZE,
 };
 
@@ -23,6 +23,7 @@ use crate::generated::{
 static mut SAB_INT32: Option<Int32Array> = None;
 static mut SAB_FLOAT32: Option<Float32Array> = None;
 static mut SAB_UINT32: Option<Uint32Array> = None;
+static mut SAB_UINT8: Option<Uint8Array> = None;
 
 /// Initialize typed array views over the SharedArrayBuffer.
 pub fn init(sab: &SharedArrayBuffer) {
@@ -30,6 +31,7 @@ pub fn init(sab: &SharedArrayBuffer) {
         SAB_INT32 = Some(Int32Array::new(sab));
         SAB_FLOAT32 = Some(Float32Array::new(sab));
         SAB_UINT32 = Some(Uint32Array::new(sab));
+        SAB_UINT8 = Some(Uint8Array::new(sab));
     }
 }
 
@@ -43,6 +45,10 @@ fn float32() -> &'static Float32Array {
 
 fn uint32() -> &'static Uint32Array {
     unsafe { SAB_UINT32.as_ref().expect("memory not initialized") }
+}
+
+fn uint8() -> &'static Uint8Array {
+    unsafe { SAB_UINT8.as_ref().expect("memory not initialized") }
 }
 
 // ---------------------------------------------------------------------------
@@ -164,27 +170,48 @@ pub fn write_frame_state(buffer_index: u32, state: &FrameState) {
 }
 
 // ---------------------------------------------------------------------------
-// Terrain data
+// Terrain Chunk Data
 // ---------------------------------------------------------------------------
 
-/// Write the terrain vertex count.
-pub fn write_terrain_vertex_count(count: u32) {
-    uint32().set_index(TERRAIN_VERTEX_COUNT_OFFSET as u32 / 4, count);
+use crate::generated::{
+    TERRAIN_META_START, TERRAIN_META_STRIDE,
+    TERRAIN_VERTEX_STRIDE,
+    TERRAIN_INDEX_STRIDE,
+};
+
+/// Write metadata for a specific chunk slot.
+pub fn write_terrain_chunk_meta(slot: usize, state: u32, chunk_x: i32, chunk_z: i32) {
+    let byte_offset = TERRAIN_META_START + slot * TERRAIN_META_STRIDE;
+    let u = uint32();
+    let i = int32();
+    
+    // ChunkMeta { state: u32, chunk_x: i32, chunk_z: i32, pad: u32 }
+    u.set_index((byte_offset / 4) as u32, state);
+    i.set_index((byte_offset / 4 + 1) as u32, chunk_x);
+    i.set_index((byte_offset / 4 + 2) as u32, chunk_z);
+    u.set_index((byte_offset / 4 + 3) as u32, 0); // padding
 }
 
-/// Write the terrain index count.
-pub fn write_terrain_index_count(count: u32) {
-    uint32().set_index(TERRAIN_INDEX_COUNT_OFFSET as u32 / 4, count);
+/// Read chunk metadata state.
+pub fn read_terrain_chunk_state(slot: usize) -> u32 {
+    let byte_offset = TERRAIN_META_START + slot * TERRAIN_META_STRIDE;
+    uint32().get_index((byte_offset / 4) as u32)
 }
 
-/// Write a single vertex float to the terrain vertex region.
-pub fn write_terrain_vertex_float(float_index: usize, value: f32) {
-    let idx = TERRAIN_VERTICES_START / 4 + float_index;
-    float32().set_index(idx as u32, value);
+/// Write a single vertex float to a specific chunk slot.
+pub fn write_chunk_vertex_float(slot: usize, float_index: usize, value: f32) {
+    let base_idx = (TERRAIN_VERTICES_START + slot * TERRAIN_VERTEX_STRIDE) / 4;
+    float32().set_index((base_idx + float_index) as u32, value);
 }
 
-/// Write a single index to the terrain index region.
-pub fn write_terrain_index(index_slot: usize, value: u32) {
-    let idx = TERRAIN_INDICES_START / 4 + index_slot;
-    uint32().set_index(idx as u32, value);
+/// Write a single index to a specific chunk slot.
+pub fn write_chunk_index(slot: usize, index_slot: usize, value: u32) {
+    let base_idx = (TERRAIN_INDICES_START + slot * TERRAIN_INDEX_STRIDE) / 4;
+    uint32().set_index((base_idx + index_slot) as u32, value);
+}
+
+pub fn write_minimap_data(data: &[u8]) {
+    for (i, &b) in data.iter().enumerate() {
+        uint8().set_index((crate::generated::MINIMAP_DATA_START + i) as u32, b);
+    }
 }
