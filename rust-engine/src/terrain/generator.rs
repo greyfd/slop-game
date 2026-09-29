@@ -1,50 +1,13 @@
-//! Terrain Chunk Manager with Object Pooling and Simplex Noise
-use crate::generated::{TERRAIN_CHUNK_COUNT, TERRAIN_CHUNK_RADIUS, TERRAIN_FLOATS_PER_VERTEX};
-use crate::memory;
-use crate::macro_map::{MacroMap, MACRO_NODES, WORLD_CHUNKS};
+use super::manager::ChunkManager;
+use super::{GRID_SIZE, CELL_SIZE, CHUNK_WORLD_SIZE};
+use super::math::{point_line_distance, smoothstep};
+use super::biomes::get_biome_color;
+use crate::macro_map::{WORLD_CHUNKS, MACRO_NODES};
 use crate::noise;
-use std::collections::HashMap;
+use crate::memory;
+use crate::generated::TERRAIN_FLOATS_PER_VERTEX;
 
-const GRID_SIZE: usize = 128;
-const CELL_SIZE: f32 = 2.0;
-const CHUNK_WORLD_SIZE: f32 = (GRID_SIZE - 1) as f32 * CELL_SIZE;
-
-fn point_line_distance(px: f32, pz: f32, x1: f32, z1: f32, x2: f32, z2: f32) -> f32 {
-    let l2 = (x2 - x1)*(x2 - x1) + (z2 - z1)*(z2 - z1);
-    if l2 == 0.0 {
-        return ((px - x1)*(px - x1) + (pz - z1)*(pz - z1)).sqrt();
-    }
-    let t = ((px - x1)*(x2 - x1) + (pz - z1)*(z2 - z1)) / l2;
-    let t = t.clamp(0.0, 1.0);
-    let proj_x = x1 + t * (x2 - x1);
-    let proj_z = z1 + t * (z2 - z1);
-    ((px - proj_x)*(px - proj_x) + (pz - proj_z)*(pz - proj_z)).sqrt()
-}
-
-fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
-    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
-fn get_biome_color(biome: u8) -> [f32; 3] {
-    match biome {
-        0 => [0.55, 0.55, 0.55], // Polar Desert
-        1 => [0.65, 0.65, 0.70], // Alpine Tundra (frosty slate)
-        2 => [0.95, 0.98, 1.00], // Glacier
-        3 => [0.75, 0.65, 0.40], // Highland Steppe
-        4 => [0.25, 0.35, 0.25], // Boreal Forest
-        5 => [0.15, 0.40, 0.20], // Temperate Rainforest
-        6 => [0.80, 0.45, 0.30], // High Desert
-        7 => [0.70, 0.35, 0.15], // Deciduous Woodlands
-        8 => [0.10, 0.25, 0.15], // Redwood Coast
-        9 => [0.90, 0.85, 0.80], // Salt Flat
-        10=> [0.15, 0.30, 0.50], // Ocean/Water
-        _ => [1.00, 0.00, 1.00], // Magenta error
-    }
-}
-
-// Get raw mathematical world height (fallback and edge cases)
-fn get_world_height(manager: &ChunkManager, world_x: f32, world_z: f32) -> f32 {
+pub fn get_world_height(manager: &ChunkManager, world_x: f32, world_z: f32) -> f32 {
     let offset_chunks = WORLD_CHUNKS as f32 / 2.0;
     
     // Position in chunks relative to bottom-left of macro map
@@ -97,92 +60,14 @@ fn get_world_height(manager: &ChunkManager, world_x: f32, world_z: f32) -> f32 {
         }
     }
     
-    let micro_noise = noise::fbm_2d(42, world_x * 0.002, world_z * 0.002, 4, 0.5, 2.0) * 12.0;
+    let raw_noise = noise::fbm_2d(42, world_x * 0.002, world_z * 0.002, 4, 0.5, 2.0);
+    let micro_noise = (raw_noise + 1.0) * 12.0;
     let flattened_noise = micro_noise * (1.0 - river_mask);
     
-    base_height + flattened_noise - (river_mask * max_trench)
+    base_height - 12.0 + flattened_noise - (river_mask * max_trench)
 }
 
-struct ChunkSlot {
-    index: usize,
-    chunk_x: i32,
-    chunk_z: i32,
-    heights: Vec<f32>,
-}
-
-pub struct ChunkManager {
-    active_chunks: HashMap<(i32, i32), ChunkSlot>,
-    free_slots: Vec<usize>,
-    last_player_chunk: (i32, i32),
-    pub macro_map: MacroMap,
-}
-
-static mut MANAGER: Option<ChunkManager> = None;
-
-pub fn init(macro_map: MacroMap) {
-    let mut free_slots = Vec::with_capacity(TERRAIN_CHUNK_COUNT);
-    for i in (0..TERRAIN_CHUNK_COUNT).rev() {
-        free_slots.push(i);
-        memory::write_terrain_chunk_meta(i, 0, 0, 0);
-    }
-    unsafe {
-        MANAGER = Some(ChunkManager {
-            active_chunks: HashMap::with_capacity(TERRAIN_CHUNK_COUNT),
-            free_slots,
-            last_player_chunk: (100000, 100000), // Force generation on first tick
-            macro_map,
-        });
-    }
-}
-
-pub fn update(player_x: f32, player_z: f32) {
-    let manager = unsafe { MANAGER.as_mut().unwrap() };
-    
-    let cx = (player_x / CHUNK_WORLD_SIZE).floor() as i32;
-    let cz = (player_z / CHUNK_WORLD_SIZE).floor() as i32;
-    
-    if cx == manager.last_player_chunk.0 && cz == manager.last_player_chunk.1 {
-        return;
-    }
-    manager.last_player_chunk = (cx, cz);
-    
-    let radius = TERRAIN_CHUNK_RADIUS as i32;
-    let mut needed_chunks = Vec::new();
-    
-    for x in (cx - radius)..=(cx + radius) {
-        for z in (cz - radius)..=(cz + radius) {
-            needed_chunks.push((x, z));
-        }
-    }
-    
-    let mut to_remove = Vec::new();
-    for (pos, slot) in manager.active_chunks.iter() {
-        if !needed_chunks.contains(pos) {
-            to_remove.push(*pos);
-            manager.free_slots.push(slot.index);
-            memory::write_terrain_chunk_meta(slot.index, 0, 0, 0);
-        }
-    }
-    for pos in to_remove {
-        manager.active_chunks.remove(&pos);
-    }
-    
-    for pos in needed_chunks {
-        if !manager.active_chunks.contains_key(&pos) {
-            if let Some(slot_index) = manager.free_slots.pop() {
-                let heights = generate_chunk(manager, slot_index, pos.0, pos.1);
-                manager.active_chunks.insert(pos, ChunkSlot {
-                    index: slot_index,
-                    chunk_x: pos.0,
-                    chunk_z: pos.1,
-                    heights,
-                });
-            }
-        }
-    }
-}
-
-fn generate_chunk(manager: &ChunkManager, slot: usize, cx: i32, cz: i32) -> Vec<f32> {
+pub fn generate_chunk(manager: &ChunkManager, slot: usize, cx: i32, cz: i32) -> Vec<f32> {
     let mut heights = vec![0.0f32; GRID_SIZE * GRID_SIZE];
     let origin_x = cx as f32 * CHUNK_WORLD_SIZE;
     let origin_z = cz as f32 * CHUNK_WORLD_SIZE;
@@ -251,12 +136,13 @@ fn generate_chunk(manager: &ChunkManager, slot: usize, cx: i32, cz: i32) -> Vec<
                 }
             }
             
-            let micro_noise = noise::fbm_2d(42, wx * 0.002, wz * 0.002, 4, 0.5, 2.0) * 12.0;
+            let raw_noise = noise::fbm_2d(42, wx * 0.002, wz * 0.002, 4, 0.5, 2.0);
+            let micro_noise = (raw_noise + 1.0) * 12.0;
             
             // Flatten micro noise in riverbed to guarantee monotonic descent
             let flattened_noise = micro_noise * (1.0 - river_mask);
             
-            heights[gz * GRID_SIZE + gx] = base_height + flattened_noise - (river_mask * max_trench);
+            heights[gz * GRID_SIZE + gx] = base_height - 12.0 + flattened_noise - (river_mask * max_trench);
         }
     }
 
@@ -326,60 +212,30 @@ fn generate_chunk(manager: &ChunkManager, slot: usize, cx: i32, cz: i32) -> Vec<
             let bl = ((gz + 1) * GRID_SIZE + gx) as u32;
             let br = bl + 1;
 
-            memory::write_chunk_index(slot, ii, tl);
-            memory::write_chunk_index(slot, ii + 1, bl);
-            memory::write_chunk_index(slot, ii + 2, tr);
-            memory::write_chunk_index(slot, ii + 3, tr);
-            memory::write_chunk_index(slot, ii + 4, bl);
-            memory::write_chunk_index(slot, ii + 5, br);
+            let h_tl = heights[tl as usize];
+            let h_tr = heights[tr as usize];
+            let h_bl = heights[bl as usize];
+            let h_br = heights[br as usize];
+
+            if (h_tl - h_br).abs() < (h_tr - h_bl).abs() {
+                memory::write_chunk_index(slot, ii, tl);
+                memory::write_chunk_index(slot, ii + 1, bl);
+                memory::write_chunk_index(slot, ii + 2, br);
+                memory::write_chunk_index(slot, ii + 3, tl);
+                memory::write_chunk_index(slot, ii + 4, br);
+                memory::write_chunk_index(slot, ii + 5, tr);
+            } else {
+                memory::write_chunk_index(slot, ii, tl);
+                memory::write_chunk_index(slot, ii + 1, bl);
+                memory::write_chunk_index(slot, ii + 2, tr);
+                memory::write_chunk_index(slot, ii + 3, tr);
+                memory::write_chunk_index(slot, ii + 4, bl);
+                memory::write_chunk_index(slot, ii + 5, br);
+            }
             ii += 6;
         }
     }
 
     memory::write_terrain_chunk_meta(slot, 2, cx, cz);
     heights
-}
-
-/// Bilinear height query for collision.
-pub fn get_height(world_x: f32, world_z: f32) -> f32 {
-    let cx = (world_x / CHUNK_WORLD_SIZE).floor() as i32;
-    let cz = (world_z / CHUNK_WORLD_SIZE).floor() as i32;
-    
-    let manager = unsafe {
-        match &MANAGER {
-            Some(m) => m,
-            None => return 0.0, // Should not happen after init
-        }
-    };
-    
-    if let Some(slot) = manager.active_chunks.get(&(cx, cz)) {
-        let origin_x = cx as f32 * CHUNK_WORLD_SIZE;
-        let origin_z = cz as f32 * CHUNK_WORLD_SIZE;
-        
-        let gxf = (world_x - origin_x) / CELL_SIZE;
-        let gzf = (world_z - origin_z) / CELL_SIZE;
-        
-        let gx0 = gxf.floor() as usize;
-        let gz0 = gzf.floor() as usize;
-        
-        if gx0 >= GRID_SIZE - 1 || gz0 >= GRID_SIZE - 1 {
-            return get_world_height(manager, world_x, world_z);
-        }
-        
-        let gx1 = gx0 + 1;
-        let gz1 = gz0 + 1;
-        let fx = gxf - gx0 as f32;
-        let fz = gzf - gz0 as f32;
-        
-        let h00 = slot.heights[gz0 * GRID_SIZE + gx0];
-        let h10 = slot.heights[gz0 * GRID_SIZE + gx1];
-        let h01 = slot.heights[gz1 * GRID_SIZE + gx0];
-        let h11 = slot.heights[gz1 * GRID_SIZE + gx1];
-
-        let h0 = h00 + (h10 - h00) * fx;
-        let h1 = h01 + (h11 - h01) * fx;
-        return h0 + (h1 - h0) * fz;
-    }
-    
-    get_world_height(manager, world_x, world_z)
 }
