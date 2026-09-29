@@ -7,7 +7,9 @@
         { "name": "keys_bitmap", "type": "u32" },
         { "name": "mouse_dx",    "type": "f32" },
         { "name": "mouse_dy",    "type": "f32" },
-        { "name": "dt",          "type": "f32" }
+        { "name": "dt",          "type": "f32" },
+        { "name": "fly_mode",    "type": "u32" },
+        { "name": "player_speed", "type": "f32" }
       ]
     },
     {

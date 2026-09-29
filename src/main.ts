@@ -26,7 +26,7 @@ import { Minimap } from './minimap';
 // --- Configuration ---
 const FOV = Math.PI / 3;
 const NEAR_PLANE = 0.1;
-const FAR_PLANE = 2000.0;
+const FAR_PLANE = 12000.0;
 
 // --- Key bitmap encoding (must match Rust input.rs) ---
 const KEY_W     = 1 << 0;
@@ -199,11 +199,30 @@ async function init(): Promise<void> {
         if (input.isKeyDown('KeyD')) keysBitmap |= KEY_D;
         if (input.isKeyDown('Space')) keysBitmap |= KEY_SPACE;
 
+        // Debug controls
+        const flyModeCheckbox = document.getElementById('fly-mode') as HTMLInputElement | null;
+        const playerSpeedRange = document.getElementById('player-speed') as HTMLInputElement | null;
+        const speedVal = document.getElementById('speed-val');
+        
+        let flyMode = 0;
+        let playerSpeed = 0.0;
+        
+        if (flyModeCheckbox && flyModeCheckbox.checked) {
+            flyMode = 1;
+        }
+        
+        if (playerSpeedRange) {
+            playerSpeed = parseFloat(playerSpeedRange.value);
+            if (speedVal) speedVal.textContent = playerSpeedRange.value;
+        }
+
         inputWriter.push(
             keysBitmap,
             input.mouseDeltaX,
             input.mouseDeltaY,
-            clampedDt
+            clampedDt,
+            flyMode,
+            playerSpeed
         );
         input.resetDeltas();
 

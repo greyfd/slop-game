@@ -7,6 +7,8 @@ pub struct InputFrame {
     pub mouse_dx: f32,
     pub mouse_dy: f32,
     pub dt: f32,
+    pub fly_mode: u32,
+    pub player_speed: f32,
 }
 
 #[repr(C, align(16))]
@@ -34,24 +36,24 @@ pub const TERRAIN_READY: usize = 12;
 
 pub const INPUT_RING_START: usize = 16;
 pub const INPUT_RING_CAPACITY: usize = 128;
-pub const INPUT_FRAME_SIZE: usize = 16;
+pub const INPUT_FRAME_SIZE: usize = 24;
 
-pub const BUFFER_A_START: usize = 2064;
-pub const BUFFER_B_START: usize = 2192;
+pub const BUFFER_A_START: usize = 3088;
+pub const BUFFER_B_START: usize = 3216;
 pub const FRAME_STATE_SIZE: usize = 128;
 
 pub const TERRAIN_CHUNK_COUNT: usize = 289;
 pub const TERRAIN_CHUNK_RADIUS: usize = 8;
-pub const TERRAIN_META_START: usize = 2320;
+pub const TERRAIN_META_START: usize = 3344;
 pub const TERRAIN_META_STRIDE: usize = 16;
-pub const TERRAIN_VERTICES_START: usize = 6944;
+pub const TERRAIN_VERTICES_START: usize = 7968;
 pub const TERRAIN_VERTEX_STRIDE: usize = 589824;
-pub const TERRAIN_INDICES_START: usize = 170466080;
+pub const TERRAIN_INDICES_START: usize = 170467104;
 pub const TERRAIN_INDEX_STRIDE: usize = 387096;
 pub const TERRAIN_MAX_VERTICES_PER_CHUNK: usize = 16384;
 pub const TERRAIN_MAX_INDICES_PER_CHUNK: usize = 96774;
 pub const TERRAIN_FLOATS_PER_VERTEX: usize = 9;
-pub const MINIMAP_DATA_START: usize = 282336832;
+pub const MINIMAP_DATA_START: usize = 282337856;
 pub const MINIMAP_DATA_SIZE: usize = 4096;
 
-pub const TOTAL_SAB_SIZE: usize = 282340928;
+pub const TOTAL_SAB_SIZE: usize = 282341952;

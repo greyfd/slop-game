@@ -18,6 +18,8 @@ pub struct AccumulatedInput {
     pub mouse_dx: f32,
     pub mouse_dy: f32,
     pub dt: f32,
+    pub fly_mode: bool,
+    pub player_speed: f32,
 }
 
 /// Key bitmap bit positions.
@@ -47,6 +49,10 @@ pub fn drain_input() -> AccumulatedInput {
             // Accumulate mouse deltas (sum across all pending frames)
             result.mouse_dx += frame.mouse_dx;
             result.mouse_dy += frame.mouse_dy;
+            
+            // Just take the latest value for these state flags
+            result.fly_mode = frame.fly_mode != 0;
+            result.player_speed = frame.player_speed;
 
             frames_read += 1;
             read_head = (read_head + 1) % (INPUT_RING_CAPACITY as u32);

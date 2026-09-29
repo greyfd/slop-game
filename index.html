@@ -133,6 +133,15 @@
       <div id="fps-counter">Render: 0 FPS</div>
       <div id="hz-counter">Engine: 0 Hz</div>
       <button id="tick-toggle">Switch to 120Hz</button>
+      <div style="margin-top: 12px; border-top: 1px solid #555; padding-top: 8px;">
+        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+          <input type="checkbox" id="fly-mode" /> Fly Mode
+        </label>
+        <label style="display: flex; align-items: center; gap: 6px; margin-top: 6px;">
+          Speed: <input type="range" id="player-speed" min="5" max="100" value="10" style="width: 100px;" />
+          <span id="speed-val">10</span>
+        </label>
+      </div>
     </div>
 
     <div id="error"></div>

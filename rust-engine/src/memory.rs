@@ -116,6 +116,8 @@ pub fn read_input_frame(slot: u32) -> InputFrame {
         mouse_dx: f.get_index((float_offset + 1) as u32),
         mouse_dy: f.get_index((float_offset + 2) as u32),
         dt: f.get_index((float_offset + 3) as u32),
+        fly_mode: i.get_index((int_offset + 4) as u32) as u32,
+        player_speed: f.get_index((float_offset + 5) as u32),
     }
 }
 

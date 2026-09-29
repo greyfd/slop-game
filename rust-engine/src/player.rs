@@ -50,8 +50,14 @@ impl Player {
         let sy = self.yaw.sin();
         let cy = self.yaw.cos();
 
-        // Forward direction on the ground plane (ignores pitch)
-        let forward = Vec3::new(-sy, 0.0, -cy);
+        // Forward direction
+        let forward = if input.fly_mode {
+            let sp = self.pitch.sin();
+            let cp = self.pitch.cos();
+            Vec3::new(-sy * cp, sp, -cy * cp)
+        } else {
+            Vec3::new(-sy, 0.0, -cy)
+        };
         // Right direction
         let right = Vec3::new(cy, 0.0, -sy);
 
@@ -76,30 +82,46 @@ impl Player {
             move_dir /= move_len;
         }
 
-        self.velocity.x = move_dir.x * MOVE_SPEED;
-        self.velocity.z = move_dir.z * MOVE_SPEED;
+        let current_speed = if input.player_speed > 0.0 { input.player_speed } else { MOVE_SPEED };
 
-        // --- Vertical physics ---
-        if input.jump && self.on_ground {
-            self.velocity.y = JUMP_VELOCITY;
-            self.on_ground = false;
+        self.velocity.x = move_dir.x * current_speed;
+        self.velocity.z = move_dir.z * current_speed;
+        if input.fly_mode {
+            self.velocity.y = move_dir.y * current_speed;
+            
+            // Allow ascending with jump key in fly mode
+            if input.jump {
+                self.velocity.y += current_speed;
+            }
         }
 
-        if !self.on_ground {
-            self.velocity.y += GRAVITY * dt;
+        // --- Vertical physics ---
+        if !input.fly_mode {
+            if input.jump && self.on_ground {
+                self.velocity.y = JUMP_VELOCITY;
+                self.on_ground = false;
+            }
+
+            if !self.on_ground {
+                self.velocity.y += GRAVITY * dt;
+            }
         }
 
         // --- Integrate position ---
         self.position += self.velocity * dt;
 
         // --- Ground collision ---
-        let ground_height = terrain::get_height(self.position.x, self.position.z);
-        let feet_y = self.position.y - PLAYER_HEIGHT;
+        if !input.fly_mode {
+            let ground_height = terrain::get_height(self.position.x, self.position.z);
+            let feet_y = self.position.y - PLAYER_HEIGHT;
 
-        if feet_y <= ground_height {
-            self.position.y = ground_height + PLAYER_HEIGHT;
-            self.velocity.y = 0.0;
-            self.on_ground = true;
+            if feet_y <= ground_height {
+                self.position.y = ground_height + PLAYER_HEIGHT;
+                self.velocity.y = 0.0;
+                self.on_ground = true;
+            } else {
+                self.on_ground = false;
+            }
         } else {
             self.on_ground = false;
         }

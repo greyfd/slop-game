@@ -17,7 +17,7 @@ export class InputWriter {
      * Push an input frame into the ring buffer.
      * Returns false if the buffer is full (producer would overwrite unread data).
      */
-    push(keysBitmap: number, mouseDx: number, mouseDy: number, dt: number): boolean {
+    push(keysBitmap: number, mouseDx: number, mouseDy: number, dt: number, flyMode: number = 0, playerSpeed: number = 0.0): boolean {
         const capacity = MemoryMap.INPUT_RING_CAPACITY;
         const writeHead = Atomics.load(this.int32, this.writeHeadIndex);
         const readHead = Atomics.load(this.int32, this.readHeadIndex);
@@ -35,6 +35,11 @@ export class InputWriter {
         this.float32[slot + InputFrameOffsets.MOUSE_DX / 4] = mouseDx;
         this.float32[slot + InputFrameOffsets.MOUSE_DY / 4] = mouseDy;
         this.float32[slot + InputFrameOffsets.DT / 4] = dt;
+        
+        // fly_mode is u32
+        this.int32[slot + InputFrameOffsets.FLY_MODE / 4] = flyMode;
+        // player_speed is f32
+        this.float32[slot + InputFrameOffsets.PLAYER_SPEED / 4] = playerSpeed;
 
         Atomics.store(this.int32, this.writeHeadIndex, (writeHead + 1) % capacity);
 

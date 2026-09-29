@@ -5,7 +5,9 @@ export class InputFrameOffsets {
     static readonly MOUSE_DX = 4;
     static readonly MOUSE_DY = 8;
     static readonly DT = 12;
-    static readonly _STRUCT_SIZE = 16;
+    static readonly FLY_MODE = 16;
+    static readonly PLAYER_SPEED = 20;
+    static readonly _STRUCT_SIZE = 24;
 }
 
 export class FrameStateOffsets {
@@ -31,29 +33,29 @@ export class MemoryMap {
     // --- Input Ring Buffer ---
     static readonly INPUT_RING_START = 16;
     static readonly INPUT_RING_CAPACITY = 128;
-    static readonly INPUT_FRAME_SIZE = 16;
+    static readonly INPUT_FRAME_SIZE = 24;
 
     // --- Double-Buffered FrameState ---
-    static readonly BUFFER_A_START = 2064;
-    static readonly BUFFER_B_START = 2192;
+    static readonly BUFFER_A_START = 3088;
+    static readonly BUFFER_B_START = 3216;
     static readonly FRAME_STATE_SIZE = 128;
 
     // --- Terrain Staging (Chunk Array) ---
     static readonly TERRAIN_CHUNK_COUNT = 289;
     static readonly TERRAIN_CHUNK_RADIUS = 8;
-    static readonly TERRAIN_META_START = 2320;
+    static readonly TERRAIN_META_START = 3344;
     static readonly TERRAIN_META_STRIDE = 16;
-    static readonly TERRAIN_VERTICES_START = 6944;
+    static readonly TERRAIN_VERTICES_START = 7968;
     static readonly TERRAIN_VERTEX_STRIDE = 589824;
-    static readonly TERRAIN_INDICES_START = 170466080;
+    static readonly TERRAIN_INDICES_START = 170467104;
     static readonly TERRAIN_INDEX_STRIDE = 387096;
     static readonly TERRAIN_MAX_VERTICES_PER_CHUNK = 16384;
     static readonly TERRAIN_MAX_INDICES_PER_CHUNK = 96774;
     static readonly TERRAIN_FLOATS_PER_VERTEX = 9;
-    static readonly MINIMAP_DATA_START = 282336832;
+    static readonly MINIMAP_DATA_START = 282337856;
     static readonly MINIMAP_DATA_SIZE = 4096;
 
     // --- Total ---
-    static readonly TOTAL_SAB_SIZE = 282340928;
+    static readonly TOTAL_SAB_SIZE = 282341952;
 }
 
