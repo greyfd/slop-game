@@ -11,16 +11,22 @@ To achieve this cascade without breaking a multi-threaded WebGPU chunk manager, 
 ## Part 1: The Dual-Tier Architecture
 
 ### Tier A: The Macro Simulator (Global Context)
+*(Core implementation: [`rust-engine/src/macro_map/mod.rs`](../rust-engine/src/macro_map/mod.rs))*
+
 Before the player spawns, a background routine generates a coarse global map (e.g., a 64x64 grid). It runs the tectonic, climatic, and hydrological simulations detailed below. It is held in memory as the "source of truth".
 
 ### Tier B: The Micro Chunk Manager (Local Context)
-As the player walks around, `terrain.rs` evaluates the player's world coordinates, looks up the corresponding data in the Macro Map, and applies high-frequency Simplex noise (fBm) to upsample the coarse data into high-resolution 3D WebGPU meshes.
+*(Core implementation: [`rust-engine/src/terrain/manager.rs`](../rust-engine/src/terrain/manager.rs) and [`generator.rs`](../rust-engine/src/terrain/generator.rs))*
+
+As the player walks around, `terrain` evaluates the player's world coordinates, looks up the corresponding data in the Macro Map, and applies high-frequency Simplex noise (fBm) to upsample the coarse data into high-resolution 3D WebGPU meshes.
 
 ---
 
 ## Part 2: The Simulation Cascade (Macro Generation)
 
 ### Level 1: Lithospheric Architecture & Tectonic Foundations
+*(Implemented in [`rust-engine/src/macro_map/tectonics.rs`](../rust-engine/src/macro_map/tectonics.rs))*
+
 1. **Plate Division**: Divide your global map into major rigid plates. Oceanic Crust is dense/low, Continental Crust is thick/buoyant.
 2. **Boundary Interactions**:
    - **Convergent**: Plates collide. Continent-Continent forms massive mountains. Oceanic-Continent subducts, forming trenches and coastal volcanoes.
@@ -28,14 +34,20 @@ As the player walks around, `terrain.rs` evaluates the player's world coordinate
    - **Transform**: Plates slide, forming fault valleys.
 
 ### Level 2: Topography & Orographic Climate
+*(Implemented in [`rust-engine/src/macro_map/climate.rs`](../rust-engine/src/macro_map/climate.rs))*
+
 1. **Global Wind Belts**: Uneven solar heating creates Trade Winds (0-30 deg) and Westerlies (30-60 deg).
 2. **Orographic Precipitation**: Winds push ocean moisture against mountains. Air rises, cools, and dumps heavy rain on the **windward side**. Dry air descends the **leeward side**, creating a **rain shadow desert**.
 
 ### Level 3: Hydrology, Erosion & Fluvial Networks
+*(Implemented in [`rust-engine/src/macro_map/hydrology.rs`](../rust-engine/src/macro_map/hydrology.rs))*
+
 1. **Stream Convergence**: Water flows steepest-descent downhill. Streams join; they never split (except at deltas).
 2. **Endorheic Basins**: In arid interiors, rivers flow into closed pits, evaporating into salt flats.
 
 ### Level 4: Biomes & Ecological Classification
+*(Implemented in [`rust-engine/src/macro_map/biomes.rs`](../rust-engine/src/macro_map/biomes.rs) and mapped in [`rust-engine/src/terrain/biomes.rs`](../rust-engine/src/terrain/biomes.rs))*
+
 Biomes emerge from the overlay of **Thermal Factors** and **Water Factors**.
 - **Equatorial**: High heat + high rain = **Tropical Rainforests**.
 - **Subtropical & Rain Shadows**: High heat + low rain = **Deserts**.
@@ -49,6 +61,8 @@ Biomes emerge from the overlay of **Thermal Factors** and **Water Factors**.
 To implement this into a highly optimized Rust/WebGPU chunking engine without sacrificing visual fidelity or framerate, we must solve five major programmatic constraints. Here is the exact mathematical and architectural thinking behind the solutions:
 
 ### 1. Finite Worlds & Procedural Seeds
+*(See `simulate_tectonics` in [`rust-engine/src/macro_map/tectonics.rs`](../rust-engine/src/macro_map/tectonics.rs))*
+
 **The Goal**: Move away from infinite repeating noise to a constrained, unique world based on a seed.
 **The Solution**: 
 - Define a fixed boundary (e.g., `WORLD_CHUNKS = 64`). 
@@ -56,6 +70,8 @@ To implement this into a highly optimized Rust/WebGPU chunking engine without sa
 - To prevent the player from falling off the edge of the array, apply a **Circular Island Mask** during the Macro Tectonic pass. Calculate the distance from the center of the 64x64 grid: `mask = 1.0 - (dist / max_dist)`. Multiply the base elevation by this mask, forcing the edges of the world to naturally taper off into a deep, impassable ocean.
 
 ### 2. Fixing Boundary Tearing (Biome Blending)
+*(See `generate_chunk` in [`rust-engine/src/terrain/generator.rs`](../rust-engine/src/terrain/generator.rs))*
+
 **The Problem**: If a chunk boundary sits exactly between a "Plains" biome and a "Mountain" biome, using a discrete `match biome { 0 => plains_noise(), 1 => mountain_noise() }` will cause a vertical cliff (tearing) because the two noise algorithms output wildly different heights for the exact same coordinate.
 **The Solution**: 
 - Evaluate the noise functions for **all four macro-node corners** surrounding the local vertex.
@@ -64,6 +80,8 @@ To implement this into a highly optimized Rust/WebGPU chunking engine without sa
 - Because adjacent chunks share the exact same mathematical corner evaluation and interpolation weights at their edges, $C^0$ continuity (perfect vertex alignment) is mathematically guaranteed.
 
 ### 3. Correct Hydrological Monotonicity
+*(See `generate_chunk` in [`rust-engine/src/terrain/generator.rs`](../rust-engine/src/terrain/generator.rs))*
+
 **The Problem**: If you carve a river simply by subtracting a trench depth (`elevation -= river_trench`), the underlying `micro_noise` (the small hills and bumps of the biome) remains. A hill inside the riverbed could force the water to flow uphill, breaking realism.
 **The Solution**: 
 - Calculate a `river_mask` ranging from `0.0` (outside river) to `1.0` (center of river) using a smoothstep function: `1.0 - smoothstep(0.0, width, distance_to_vector)`.
@@ -72,6 +90,8 @@ To implement this into a highly optimized Rust/WebGPU chunking engine without sa
 - Because the `base_elevation` was generated using steepest-descent downhill algorithms in the Macro pass, the riverbed now strictly adheres to a downhill gradient.
 
 ### 4. Defining River Vectors
+*(See distance math in [`rust-engine/src/terrain/math.rs`](../rust-engine/src/terrain/math.rs) and generation in [`rust-engine/src/macro_map/hydrology.rs`](../rust-engine/src/macro_map/hydrology.rs))*
+
 **The Problem**: A scalar `water_volume` on a Macro Node tells us a river exists, but not where it goes. A chunk cannot render a flowing river if it doesn't know the angle.
 **The Solution**: 
 - Update the Macro structure to store directed graph edges: `river_dx` and `river_dz` alongside `flow_volume`.
@@ -79,6 +99,8 @@ To implement this into a highly optimized Rust/WebGPU chunking engine without sa
 - Use a `point_line_distance()` algebraic formula to find the exact shortest orthogonal distance from the current vertex to the river's vector. Use this distance to drive the `river_mask`.
 
 ### 5. Optimizing the Sampling Loop & Pre-Fetching
+*(See `generate_chunk` in [`rust-engine/src/terrain/generator.rs`](../rust-engine/src/terrain/generator.rs))*
+
 **The Problem**: A single 128x128 chunk contains 16,384 vertices. Calling `macro_map.get_node()` and searching for nearby rivers 16,384 times destroys CPU cache and drops frames.
 **The Solution**: 
 - **Pre-fetch:** Before entering the double `for` loop, fetch the 4 bounding box Macro Nodes (`n00, n10, n01, n11`) into local stack memory. 
@@ -86,6 +108,8 @@ To implement this into a highly optimized Rust/WebGPU chunking engine without sa
 - Inside the 16,384 loop, the CPU only performs pure floating-point math (bilinear interpolation and point-line distance) against the pre-fetched local cache, guaranteeing blazing fast generation.
 
 ### 6. Data-Oriented Design (Structure of Arrays)
+*(See `MacroMap` struct in [`rust-engine/src/macro_map/mod.rs`](../rust-engine/src/macro_map/mod.rs))*
+
 **The Problem**: Defining a `MacroNode` struct with 10 fields and storing them in a `Vec<MacroNode>` creates an "Array of Structs" (AoS). When iterating through millions of nodes to calculate rainfall, the CPU loads irrelevant data (like biome IDs) into the L1 cache, causing cache misses.
 **The Solution**: 
 - Convert the `MacroMap` to a "Structure of Arrays" (SoA).
